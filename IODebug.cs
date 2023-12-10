@@ -8,7 +8,7 @@ using static IOEntity;
 
 namespace Oxide.Plugins
 {
-    [Info("IO Debug", "WhiteThunder", "0.5.0")]
+    [Info("IO Debug", "WhiteThunder", "0.5.1")]
     [Description("Helps debugging electrical entities not working.")]
     internal class IODebug : CovalencePlugin
     {
@@ -179,10 +179,6 @@ namespace Oxide.Plugins
 
             foreach (var entity in queue)
             {
-                // Ignore unowned entities since they are probably at monuments and not the cause.
-                if (entity.OwnerID == 0)
-                    continue;
-
                 int count;
                 if (!_queueCountByEntity.TryGetValue(entity, out count))
                 {
