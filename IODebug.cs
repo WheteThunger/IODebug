@@ -8,7 +8,7 @@ using static IOEntity;
 
 namespace Oxide.Plugins
 {
-    [Info("IO Debug", "WhiteThunder", "0.5.1")]
+    [Info("IO Debug", "WhiteThunder", "0.5.2")]
     [Description("Helps debugging electrical entities not working.")]
     internal class IODebug : CovalencePlugin
     {
@@ -96,7 +96,7 @@ namespace Oxide.Plugins
                 return;
 
             var originalSize = queue.Count;
-            RemoveConsecutiveDuplicates(queue);
+            RemoveConsecutiveDuplicatesAndDestroyedEntities(queue);
 
             var newSize = queue.Count;
             if (originalSize == newSize)
@@ -200,8 +200,12 @@ namespace Oxide.Plugins
             return result;
         }
 
-        private string FormatPosition(Vector3 position)
+        private string FormatPosition(IOEntity ioEntity)
         {
+            if (ioEntity == null || ioEntity.IsDestroyed)
+                return "Destroyed";
+
+            var position = ioEntity.transform.position;
             return $"{position.x:f1},{position.y:f1},{position.z:f1}";
         }
 
@@ -212,7 +216,7 @@ namespace Oxide.Plugins
             output += $"\nEntity type: {ioEntity.GetType()}";
             output += $"\nEntity prefab: {ioEntity.PrefabName}";
             output += $"\nEntity net id: {ioEntity.net.ID}";
-            output += $"\nEntity position: teleportpos {FormatPosition(ioEntity.transform.position)}";
+            output += $"\nEntity position: teleportpos {FormatPosition(ioEntity)}";
 
             output += $"\nEntity inputs: {ioEntity.inputs.Count(x => x.connectedTo.Get() != null)}";
             foreach (var slot in ioEntity.inputs)
@@ -274,7 +278,7 @@ namespace Oxide.Plugins
                 {
                     foreach (var entry in topRanked)
                     {
-                        output += $"\n[{entry.Value} times] {entry.Key.ShortPrefabName} @ {FormatPosition(entry.Key.transform.position)}";
+                        output += $"\n[{entry.Value} times] {entry.Key.ShortPrefabName} @ {FormatPosition(entry.Key)}";
                     }
 
                     var topEntity = topRanked.FirstOrDefault().Key;
@@ -323,14 +327,14 @@ namespace Oxide.Plugins
             return didUnplug;
         }
 
-        private void RemoveConsecutiveDuplicates(Queue<IOEntity> queue)
+        private void RemoveConsecutiveDuplicatesAndDestroyedEntities(Queue<IOEntity> queue)
         {
             var newQueue = queue.ToList();
             IOEntity previousItem = null;
             for (var i = newQueue.Count - 1; i >= 0; i--)
             {
                 var item = newQueue[i];
-                if (item == previousItem)
+                if (item == null || item.IsDestroyed || item == previousItem)
                 {
                     newQueue.RemoveAt(i);
                     continue;

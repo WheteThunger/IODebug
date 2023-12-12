@@ -30,7 +30,7 @@ The convar value represents how many milliseconds (ms) per frame can be spent pr
   - `Generic` -- Not used.
   - `Industrial` -- Used by industrial entities (e.g, industrial conveyor, industrial crafter).
 - `iodebug.unplug <entity net ID>` -- Disconnects any wires/hoses/pipes that are connected to the entities inputs. This is useful if you want to remotely disconnect an entity without visiting it in-game. The entity net ID will be visible in the output of `iodebug <queue name>`.
-- `iodebug.reducequeue <queue name>` -- Removes consecutive duplicates from the specified IO queue. For example, if the queue consists of `switch1, timer1, timer1, timer1, switch1, switch2`, this command will reduce the queue to `switch1, timer1, switch1, switch2`. This command is believed to be safe, having no adverse effects on the entities in the queue. This may have no effect if the duplicates in the queue are not consecutive.
+- `iodebug.reducequeue <queue name>` -- Removes destroyed entities and consecutive duplicates from the specified IO queue. For example, if the queue consists of `switch1, timer1, timer1, timer1, switch1, switch2`, this command will reduce the queue to `switch1, timer1, switch1, switch2`. This command is believed to be safe, having no adverse effects on the entities in the queue. This command will have no effect if the queue cannot be safely reduced.
 - `iodebug.clearqueue <queue name>` -- Clears all entities from the specified IO queue. Caution is advised because this could leave entities that were in the queue in an incorrect state (e.g., not powered when they should have been). This should be used as a last resort if other queue reduction options have been exhausted.
 
 ## Example usage
