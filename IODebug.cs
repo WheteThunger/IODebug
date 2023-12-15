@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using UnityEngine;
 using static IOEntity;
 
@@ -18,10 +17,6 @@ namespace Oxide.Plugins
         private const int MaxQueueOccupantsToShow = 5;
 
         private readonly Dictionary<IOEntity, int> _queueCountByEntity = new Dictionary<IOEntity, int>();
-
-        private Dictionary<QueueType, Queue<IOEntity>> _queues = typeof(IOEntity)
-            .GetField("_processQueues", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            ?.GetValue(null) as Dictionary<QueueType, Queue<IOEntity>>;
 
         #endregion
 
@@ -185,7 +180,7 @@ namespace Oxide.Plugins
         private Queue<IOEntity> GetQueue(QueueType queueType)
         {
             Queue<IOEntity> queue;
-            return _queues.TryGetValue(queueType, out queue)
+            return IOEntity._processQueues.TryGetValue(queueType, out queue)
                 ? queue
                 : null;
         }
@@ -266,7 +261,7 @@ namespace Oxide.Plugins
         {
             var output = "Showing the size of each IO queue.";
 
-            foreach (var entry in _queues)
+            foreach (var entry in IOEntity._processQueues)
             {
                 output += $"\n- {entry.Key}: {entry.Value.Count}";
             }
