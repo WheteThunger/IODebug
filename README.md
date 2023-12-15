@@ -19,6 +19,10 @@ Once the queue has begun draining, if it's taking too long to drain, you can try
 
 The convar value represents how many milliseconds (ms) per frame can be spent processing the queue. For example, if you are aiming for 30 FPS, you want each frame to be processed within approximately 33ms (1000ms / 30 = 33.33ms), so you would want the IO budget to be much lower than that to allow the server to process everything else not IO related. The default budget size is less than or equal to 1ms for every queue. To start with, try increasing the budget by one ms at a time (e.g., `ioentity.framebudgetelectriclowpriorityms 1.5` then `ioentity.framebudgetelectriclowpriorityms 2.5`).
 
+## Permissions
+
+- `iodebug.use` -- Allows using all commands in this plugin. Regardless of this permission, the commands can also be used in the server console and by server owners.
+
 ## Commands
 
 - `iodebug` -- Prints the name and size of each IO queue. If a given queue is empty (size 0), that means electricity/fluid/etc. is probably working fine, for entities that use that queue. If the queue is non-empty, lots of information will be printed.

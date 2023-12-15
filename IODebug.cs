@@ -14,6 +14,7 @@ namespace Oxide.Plugins
     {
         #region Fields
 
+        private const string PermissionUse = "iodebug.use";
         private const int MaxQueueOccupantsToShow = 5;
 
         private readonly Dictionary<IOEntity, int> _queueCountByEntity = new Dictionary<IOEntity, int>();
@@ -21,6 +22,15 @@ namespace Oxide.Plugins
         private Dictionary<QueueType, Queue<IOEntity>> _queues = typeof(IOEntity)
             .GetField("_processQueues", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             ?.GetValue(null) as Dictionary<QueueType, Queue<IOEntity>>;
+
+        #endregion
+
+        #region Hooks
+
+        private void Init()
+        {
+            permission.RegisterPermission(PermissionUse, this);
+        }
 
         #endregion
 
@@ -130,7 +140,14 @@ namespace Oxide.Plugins
 
         private bool VerifyPermission(IPlayer player)
         {
-            return player.IsServer || player.IsAdmin;
+            if (player.IsServer || player.IsAdmin)
+                return true;
+
+            if (permission.UserHasPermission(player.Id, PermissionUse))
+                return true;
+
+            player.Reply($"You don't have permission to use this command.");
+            return false;
         }
 
         private bool VerifyQueueExists(IPlayer player, string cmd, string[] args, out QueueType queueType, out Queue<IOEntity> queue)
