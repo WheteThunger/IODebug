@@ -1,6 +1,7 @@
 ## Features
 
-This plugin helps Rust server owners debug and mitigate issues where electrical entities are not working.
+- Provides commands to help server owners debug and mitigate issues where electrical/fluid/industrial entities (i.e., I/O Entities) are not working
+- Provides configuration options to automatically monitor IO queues and mitigate certain types of issues 
 
 ## How to use
 
@@ -79,3 +80,37 @@ Entity.lastUpdateBlockedFrame: 4469921
 Entity.HasBlockedUpdatedOutputsThisFrame: False
 Time.frameCount: 4469922
 ```
+
+## Configuration
+
+Default configuration:
+
+```json
+{
+  "Auto unplug top entity in the queue": {
+    "Enabled": false,
+    "Check interval (seconds)": 60.0,
+    "Monitored queues": [
+      "ElectricLowPriority"
+    ],
+    "Only check the queue if it has at least this many items": 100,
+    "Only unplug the top entity if it appears at least this many times in the queue": 10
+  },
+  "Auto remove entities from the queue that do not have any connections": {
+    "Enabled": false,
+    "Check interval (seconds)": 60.0,
+    "Monitored queues": [
+      "ElectricHighPriority"
+    ],
+    "Only check the queue if it has at least this many items": 100,
+    "Only remove entities with these prefabs": [
+      "assets/content/props/sentry_scientists/sentry.bandit.static.prefab",
+      "assets/content/props/sentry_scientists/sentry.scientist.static.prefab"
+    ]
+  }
+}
+```
+
+## Questions / Issues?
+
+For questions and issues, please open a new issue on this GitHub repository.

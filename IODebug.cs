@@ -1,4 +1,7 @@
-﻿using Oxide.Core.Libraries.Covalence;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
+using Oxide.Core.Libraries.Covalence;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,8 +10,8 @@ using static IOEntity;
 
 namespace Oxide.Plugins
 {
-    [Info("IO Debug", "WhiteThunder", "0.5.2")]
-    [Description("Helps debugging electrical entities not working.")]
+    [Info("IO Debug", "WhiteThunder", "0.6.0")]
+    [Description("Helps debugging electrical/fluid/industrial entities not working.")]
     internal class IODebug : CovalencePlugin
     {
         #region Fields
@@ -16,7 +19,8 @@ namespace Oxide.Plugins
         private const string PermissionUse = "iodebug.use";
         private const int MaxQueueOccupantsToShow = 5;
 
-        private readonly Dictionary<IOEntity, int> _queueCountByEntity = new Dictionary<IOEntity, int>();
+        private Configuration _config;
+        private readonly Dictionary<IOEntity, int> _queueCountByEntity = new();
 
         #endregion
 
@@ -25,6 +29,70 @@ namespace Oxide.Plugins
         private void Init()
         {
             permission.RegisterPermission(PermissionUse, this);
+        }
+
+        private void OnServerInitialized()
+        {
+            _config.OnServerInitialized(this);
+
+            var autoUnplugConfig = _config.AutoUnplugConfig;
+            if (autoUnplugConfig.Enabled)
+            {
+                timer.Every(autoUnplugConfig.CheckIntervalSeconds, () =>
+                {
+                    foreach (var queueType in autoUnplugConfig.MonitoredQueueTypes)
+                    {
+                        var queue = GetQueue(queueType);
+                        if (queue == null || queue.Count < autoUnplugConfig.OverallQueueThreshold)
+                            continue;
+
+                        var (ioEntity, count) = RankQueueMembers(queue).FirstOrDefault();
+                        if (ioEntity == null)
+                            continue;
+
+                        if (count < autoUnplugConfig.OccupancyThreshold)
+                            continue;
+
+                        if (UnplugIOEntity(ioEntity))
+                        {
+                            var logMessage = $"Entity {ioEntity.ShortPrefabName} in {queueType} queue was automatically unplugged at @ {FormatPosition(ioEntity)}";
+                            var originalSize = queue.Count;
+
+                            if (HasConsecutiveDuplicatesOrDestroyedEntities(queue))
+                            {
+                                RemoveConsecutiveDuplicatesAndDestroyedEntities(queue);
+                                if (queue.Count != originalSize)
+                                {
+                                    logMessage += $" {queueType} queue reduced from {originalSize} to {queue.Count}";
+                                }
+                            }
+
+                            LogWarning(logMessage);
+                        }
+                    }
+                });
+            }
+
+            var autoRemoveConfig = _config.AutoRemoveConfig;
+            if (autoRemoveConfig.Enabled)
+            {
+                timer.Every(autoRemoveConfig.CheckIntervalSeconds, () =>
+                {
+                    foreach (var queueType in autoRemoveConfig.MonitoredQueueTypes)
+                    {
+                        var queue = GetQueue(queueType);
+                        if (queue == null || queue.Count < autoRemoveConfig.OverallQueueThreshold)
+                            continue;
+
+                        if (!HasUnpluggedEntities(queue))
+                            continue;
+
+                        var originalSize = queue.Count;
+                        RemoveUnpluggedEntities(queue);
+                        LogWarning($"Removed unplugged entities from {queueType} queue. Reduced size from {originalSize} to {queue.Count}.");
+                    }
+                });
+            }
         }
 
         #endregion
@@ -43,8 +111,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            QueueType queueType;
-            if (!Enum.TryParse(args[0], ignoreCase: true, result: out queueType))
+            if (!Enum.TryParse(args[0], ignoreCase: true, result: out QueueType queueType))
             {
                 player.Reply($"Syntax: {cmd} <queue name>");
                 return;
@@ -66,8 +133,7 @@ namespace Oxide.Plugins
             if (!VerifyPermission(player))
                 return;
 
-            uint netId;
-            if (args.Length < 1 || !uint.TryParse(args[0], out netId))
+            if (args.Length < 1 || !uint.TryParse(args[0], out var netId))
             {
                 player.Reply($"Syntax: {cmd} <entity net ID>");
                 return;
@@ -93,24 +159,21 @@ namespace Oxide.Plugins
         [Command("iodebug.reducequeue")]
         private void CommandReduceQueue(IPlayer player, string cmd, string[] args)
         {
-            QueueType queueType;
-            Queue<IOEntity> queue;
             if (!VerifyPermission(player)
-                || !VerifyQueueExists(player, cmd, args, out queueType, out queue)
+                || !VerifyQueueExists(player, cmd, args, out var queueType, out var queue)
                 || !VerifyQueueNotEmpty(player, queueType, queue))
                 return;
 
             var originalSize = queue.Count;
             RemoveConsecutiveDuplicatesAndDestroyedEntities(queue);
 
-            var newSize = queue.Count;
-            if (originalSize == newSize)
+            if (originalSize == queue.Count)
             {
                 player.Reply($"We were unable to reduce the {queueType} queue to due to no consecutive duplicates.");
                 return;
             }
 
-            player.Reply($"{queueType} queue reduced from {originalSize} to {newSize}");
+            player.Reply($"{queueType} queue reduced from {originalSize} to {queue.Count}");
         }
 
         [Command("iodebug.clearqueue")]
@@ -119,9 +182,7 @@ namespace Oxide.Plugins
             if (!player.IsServer && !player.IsAdmin)
                 return;
 
-            QueueType queueType;
-            Queue<IOEntity> queue;
-            if (!VerifyQueueExists(player, cmd, args, out queueType, out queue)
+            if (!VerifyQueueExists(player, cmd, args, out var queueType, out var queue)
                 || !VerifyQueueNotEmpty(player, queueType, queue))
                 return;
 
@@ -179,8 +240,7 @@ namespace Oxide.Plugins
 
         private Queue<IOEntity> GetQueue(QueueType queueType)
         {
-            Queue<IOEntity> queue;
-            return IOEntity._processQueues.TryGetValue(queueType, out queue)
+            return IOEntity._processQueues.TryGetValue(queueType, out var queue)
                 ? queue
                 : null;
         }
@@ -191,8 +251,7 @@ namespace Oxide.Plugins
 
             foreach (var entity in queue)
             {
-                int count;
-                if (!_queueCountByEntity.TryGetValue(entity, out count))
+                if (!_queueCountByEntity.TryGetValue(entity, out var count))
                 {
                     count = 0;
                 }
@@ -339,28 +398,288 @@ namespace Oxide.Plugins
             return didUnplug;
         }
 
+        private bool HasAnyConnection(IOEntity ioEntity)
+        {
+            foreach (var slot in ioEntity.inputs)
+            {
+                if (slot.connectedTo.Get() != null)
+                    return true;
+            }
+
+            foreach (var slot in ioEntity.outputs)
+            {
+                if (slot.connectedTo.Get() != null)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool HasUnpluggedEntities(Queue<IOEntity> queue)
+        {
+            foreach (var ioEntity in queue)
+            {
+                if (!HasAnyConnection(ioEntity))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void RemoveUnpluggedEntities(Queue<IOEntity> queue)
+        {
+            var newQueueItems = new List<IOEntity>();
+
+            foreach (var ioEntity in queue)
+            {
+                if (HasAnyConnection(ioEntity) || !_config.AutoRemoveConfig.CanRemoveEntity(ioEntity))
+                {
+                    newQueueItems.Add(ioEntity);
+                }
+            }
+
+            ReplaceQueueItems(queue, newQueueItems);
+        }
+
+        private bool HasConsecutiveDuplicatesOrDestroyedEntities(Queue<IOEntity> queue)
+        {
+            IOEntity previousItem = null;
+            foreach (var ioEntity in queue)
+            {
+                if ((object)previousItem == null)
+                {
+                    previousItem = ioEntity;
+                    continue;
+                }
+
+                if (ioEntity == previousItem)
+                    return true;
+            }
+
+            return false;
+        }
+
         private void RemoveConsecutiveDuplicatesAndDestroyedEntities(Queue<IOEntity> queue)
         {
-            var newQueue = queue.ToList();
+            var newQueueItems = queue.ToList();
+
             IOEntity previousItem = null;
-            for (var i = newQueue.Count - 1; i >= 0; i--)
+            for (var i = newQueueItems.Count - 1; i >= 0; i--)
             {
-                var item = newQueue[i];
+                var item = newQueueItems[i];
                 if (item == null || item.IsDestroyed || item == previousItem)
                 {
-                    newQueue.RemoveAt(i);
+                    newQueueItems.RemoveAt(i);
                     continue;
                 }
 
                 previousItem = item;
             }
 
+            ReplaceQueueItems(queue, newQueueItems);
+        }
+
+        private void ReplaceQueueItems(Queue<IOEntity> queue, List<IOEntity> newItems)
+        {
             queue.Clear();
-            foreach (var item in newQueue)
+
+            foreach (var item in newItems)
             {
                 queue.Enqueue(item);
             }
         }
+
+        #endregion
+
+        #region Configuration
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private class BaseMonitorConfig
+        {
+            [JsonProperty("Enabled", Order = -5)]
+            public bool Enabled;
+
+            [JsonProperty("Check interval (seconds)", Order = -4)]
+            public float CheckIntervalSeconds = 60;
+
+            [JsonProperty("Monitored queues", ItemConverterType = typeof(StringEnumConverter), Order = -3)]
+            public QueueType[] MonitoredQueueTypes = {};
+
+            [JsonProperty("Only check the queue if it has at least this many items", Order = -2)]
+            public int OverallQueueThreshold = 100;
+        }
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private class AutoUnplugConfig : BaseMonitorConfig
+        {
+            [JsonProperty("Only unplug the top entity if it appears at least this many times in the queue")]
+            public int OccupancyThreshold = 10;
+        }
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private class AutoRemoveConfig : BaseMonitorConfig
+        {
+            [JsonProperty("Only remove entities with these prefabs")]
+            private string[] _prefabStrings =
+            {
+                "assets/content/props/sentry_scientists/sentry.bandit.static.prefab",
+                "assets/content/props/sentry_scientists/sentry.scientist.static.prefab",
+            };
+
+            private HashSet<uint> _prefabIds = new();
+
+            public void OnServerInitialized(IODebug plugin)
+            {
+                if (!Enabled)
+                    return;
+
+                foreach (var prefabPath in _prefabStrings)
+                {
+                    var entityTemplate = GameManager.server.FindPrefab(prefabPath)?.GetComponent<IOEntity>();
+                    if (entityTemplate == null)
+                    {
+                        plugin.LogError($"Prefab {prefabPath} does not exist or does not correspond to an IO Entity.");
+                        continue;
+                    }
+
+                    _prefabIds.Add(entityTemplate.prefabID);
+                }
+            }
+
+            public bool CanRemoveEntity(IOEntity ioEntity)
+            {
+                return _prefabIds.Contains(ioEntity.prefabID);
+            }
+        }
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private class Configuration : BaseConfiguration
+        {
+            [JsonProperty("Auto unplug top entity in the queue")]
+            public AutoUnplugConfig AutoUnplugConfig = new()
+            {
+                MonitoredQueueTypes = new[] { QueueType.ElectricLowPriority }
+            };
+
+            [JsonProperty("Auto remove entities from the queue that do not have any connections")]
+            public AutoRemoveConfig AutoRemoveConfig = new()
+            {
+                MonitoredQueueTypes = new[] { QueueType.ElectricHighPriority }
+            };
+
+            public void OnServerInitialized(IODebug plugin)
+            {
+                AutoRemoveConfig.OnServerInitialized(plugin);
+            }
+        }
+
+        private Configuration GetDefaultConfig() => new();
+
+        #region Configuration Helpers
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private class BaseConfiguration
+        {
+            private string ToJson() => JsonConvert.SerializeObject(this);
+
+            public Dictionary<string, object> ToDictionary() => JsonHelper.Deserialize(ToJson()) as Dictionary<string, object>;
+        }
+
+        private static class JsonHelper
+        {
+            public static object Deserialize(string json) => ToObject(JToken.Parse(json));
+
+            private static object ToObject(JToken token)
+            {
+                switch (token.Type)
+                {
+                    case JTokenType.Object:
+                        return token.Children<JProperty>()
+                                    .ToDictionary(prop => prop.Name,
+                                                  prop => ToObject(prop.Value));
+
+                    case JTokenType.Array:
+                        return token.Select(ToObject).ToList();
+
+                    default:
+                        return ((JValue)token).Value;
+                }
+            }
+        }
+
+        private bool MaybeUpdateConfig(BaseConfiguration config)
+        {
+            var currentWithDefaults = config.ToDictionary();
+            var currentRaw = Config.ToDictionary(x => x.Key, x => x.Value);
+            return MaybeUpdateConfigSection(currentWithDefaults, currentRaw);
+        }
+
+        private bool MaybeUpdateConfigSection(Dictionary<string, object> currentWithDefaults, Dictionary<string, object> currentRaw)
+        {
+            var changed = false;
+
+            foreach (var key in currentWithDefaults.Keys)
+            {
+                if (currentRaw.TryGetValue(key, out var currentRawValue))
+                {
+                    var defaultDictValue = currentWithDefaults[key] as Dictionary<string, object>;
+                    var currentDictValue = currentRawValue as Dictionary<string, object>;
+
+                    if (defaultDictValue != null)
+                    {
+                        if (currentDictValue == null)
+                        {
+                            currentRaw[key] = currentWithDefaults[key];
+                            changed = true;
+                        }
+                        else if (MaybeUpdateConfigSection(defaultDictValue, currentDictValue))
+                            changed = true;
+                    }
+                }
+                else
+                {
+                    currentRaw[key] = currentWithDefaults[key];
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        protected override void LoadDefaultConfig() => _config = GetDefaultConfig();
+
+        protected override void LoadConfig()
+        {
+            base.LoadConfig();
+            try
+            {
+                _config = Config.ReadObject<Configuration>();
+                if (_config == null)
+                {
+                    throw new JsonException();
+                }
+
+                if (MaybeUpdateConfig(_config))
+                {
+                    PrintWarning("Configuration appears to be outdated; updating and saving");
+                    SaveConfig();
+                }
+            }
+            catch (Exception e)
+            {
+                PrintError(e.Message);
+                PrintWarning($"Configuration file {Name}.json is invalid; using defaults");
+                LoadDefaultConfig();
+            }
+        }
+
+        protected override void SaveConfig()
+        {
+            Puts($"Configuration changes saved to {Name}.json");
+            Config.WriteObject(_config, true);
+        }
+
+        #endregion
 
         #endregion
     }
