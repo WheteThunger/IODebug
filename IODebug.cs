@@ -286,7 +286,11 @@ namespace Oxide.Plugins
 
             output += $"\nEntity type: {ioEntity.GetType()}";
             output += $"\nEntity prefab: {ioEntity.PrefabName}";
-            output += $"\nEntity net id: {ioEntity.net.ID}";
+            if (ioEntity.net != null)
+            {
+                output += $"\nEntity net id: {ioEntity.net.ID}";
+            }
+
             output += $"\nEntity position: teleportpos {FormatPosition(ioEntity)}";
 
             output += $"\nEntity inputs: {ioEntity.inputs.Count(x => x.connectedTo.Get() != null)}";
